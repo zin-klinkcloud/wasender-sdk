@@ -22,6 +22,7 @@ const EXPECTED_EXPORTS = [
   'WasenderRateLimitError',
   'WasenderConnectionError',
   'verifyWebhook',
+  'verifyWebhookSync',
   'signWebhookBody',
   'WEBHOOK_SIGNATURE_HEADER',
   'parseRetryAfter',

@@ -10,6 +10,8 @@
  * `getChannelWebhook()`, or found in the dashboard.
  */
 
+import { hmacSha256, toHex } from './sha256.js';
+
 /** The header wasender.dev puts the signature in. */
 export const WEBHOOK_SIGNATURE_HEADER = 'x-wasender-signature' as const;
 
@@ -26,7 +28,7 @@ function toBytes(body: RawBody): Uint8Array {
   return new Uint8Array(body);
 }
 
-/** Compares two equal-length byte arrays without leaking where they differ. */
+/** Compares two byte arrays without leaking where they differ. */
 function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -48,6 +50,41 @@ function getSubtle(): SubtleCrypto | undefined {
 }
 
 /**
+ * Computes the HMAC with Web Crypto when the runtime has it, falling back to
+ * the SDK's own implementation otherwise.
+ *
+ * Node only exposes `crypto.subtle` globally from version 19, and this package
+ * supports Node 18, so the fallback is not hypothetical.
+ */
+async function mac(secret: string, body: Uint8Array): Promise<Uint8Array> {
+  const subtle = getSubtle();
+  if (!subtle) return hmacSha256(textEncoder.encode(secret), body);
+  const key = await subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
+    'sign',
+  ]);
+  return new Uint8Array(await subtle.sign('HMAC', key, body as BufferSource));
+}
+
+/** Everything both verifiers check before touching a hash. */
+function parseSignature(
+  rawBody: RawBody | null | undefined,
+  signatureHeader: string | null | undefined,
+  secret: string,
+): { provided: Uint8Array; body: Uint8Array } | undefined {
+  if (rawBody === null || rawBody === undefined) return undefined;
+  if (typeof signatureHeader !== 'string') return undefined;
+  if (typeof secret !== 'string' || secret === '') return undefined;
+
+  const header = signatureHeader.trim();
+  if (!header.toLowerCase().startsWith(WEBHOOK_SIGNATURE_PREFIX)) return undefined;
+
+  const provided = hexToBytes(header.slice(WEBHOOK_SIGNATURE_PREFIX.length).trim());
+  if (!provided || provided.length !== 32) return undefined;
+
+  return { provided, body: toBytes(rawBody) };
+}
+
+/**
  * Checks a webhook signature against the raw body.
  *
  * Returns false rather than throwing for every failure mode: a missing header,
@@ -59,11 +96,9 @@ function getSubtle(): SubtleCrypto | undefined {
  * if (!ok) return res.sendStatus(401);
  * ```
  *
- * Uses Web Crypto (`crypto.subtle`), which is global on Node 18+, Bun, Deno,
- * Cloudflare Workers and in browsers, so the SDK stays dependency free and the
- * bundle stays usable in the browser. There is deliberately no synchronous
- * variant: a synchronous HMAC would mean importing `node:crypto`, which breaks
- * non-Node bundles. The comparison is constant time.
+ * Uses Web Crypto where available (Node 19+, Bun, Deno, Workers, browsers) and
+ * the SDK's own HMAC-SHA256 otherwise, so no Node builtin is imported and the
+ * bundle stays usable in the browser. The comparison is constant time.
  */
 export async function verifyWebhook(
   rawBody: RawBody | null | undefined,
@@ -71,31 +106,33 @@ export async function verifyWebhook(
   secret: string,
 ): Promise<boolean> {
   try {
-    if (rawBody === null || rawBody === undefined) return false;
-    if (typeof signatureHeader !== 'string') return false;
-    if (typeof secret !== 'string' || secret === '') return false;
+    const parsed = parseSignature(rawBody, signatureHeader, secret);
+    if (!parsed) return false;
+    return constantTimeEqual(parsed.provided, await mac(secret, parsed.body));
+  } catch {
+    return false;
+  }
+}
 
-    const header = signatureHeader.trim();
-    if (!header.toLowerCase().startsWith(WEBHOOK_SIGNATURE_PREFIX)) return false;
-
-    const provided = hexToBytes(header.slice(WEBHOOK_SIGNATURE_PREFIX.length).trim());
-    if (!provided || provided.length !== 32) return false;
-
-    const subtle = getSubtle();
-    if (!subtle) {
-      throw new Error(
-        'Web Crypto is unavailable in this runtime, so webhook signatures cannot be verified. Node 18+ or any modern runtime provides it.',
-      );
-    }
-
-    const key = await subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
-      'sign',
-    ]);
-    const expected = new Uint8Array(await subtle.sign('HMAC', key, toBytes(rawBody) as BufferSource));
-    return constantTimeEqual(provided, expected);
-  } catch (error) {
-    // A genuinely broken runtime should be loud; bad input should not be.
-    if (error instanceof Error && error.message.startsWith('Web Crypto is unavailable')) throw error;
+/**
+ * The synchronous equivalent of `verifyWebhook()`, for handlers that cannot
+ * await.
+ *
+ * Web Crypto has no synchronous API, so this always uses the SDK's own
+ * HMAC-SHA256 rather than the runtime's. It imports no Node builtin, so it
+ * works in the browser and on the edge as well. Prefer `verifyWebhook()` when
+ * you can await, since it uses the platform implementation where there is one.
+ */
+export function verifyWebhookSync(
+  rawBody: RawBody | null | undefined,
+  signatureHeader: string | null | undefined,
+  secret: string,
+): boolean {
+  try {
+    const parsed = parseSignature(rawBody, signatureHeader, secret);
+    if (!parsed) return false;
+    return constantTimeEqual(parsed.provided, hmacSha256(textEncoder.encode(secret), parsed.body));
+  } catch {
     return false;
   }
 }
@@ -107,15 +144,5 @@ export async function verifyWebhook(
  * hand: use `verifyWebhook()`, which compares in constant time.
  */
 export async function signWebhookBody(rawBody: RawBody, secret: string): Promise<string> {
-  const subtle = getSubtle();
-  if (!subtle) {
-    throw new Error('Web Crypto is unavailable in this runtime, so a webhook signature cannot be computed.');
-  }
-  const key = await subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
-    'sign',
-  ]);
-  const mac = new Uint8Array(await subtle.sign('HMAC', key, toBytes(rawBody) as BufferSource));
-  let hex = '';
-  for (const byte of mac) hex += byte.toString(16).padStart(2, '0');
-  return `${WEBHOOK_SIGNATURE_PREFIX}${hex}`;
+  return `${WEBHOOK_SIGNATURE_PREFIX}${toHex(await mac(secret, toBytes(rawBody)))}`;
 }

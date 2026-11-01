@@ -33,9 +33,11 @@ First release.
   backing off exponentially with jitter otherwise. Off by default.
 - `timeoutMs` using `AbortController`, overridable per call, alongside support
   for a caller supplied `AbortSignal`.
-- `verifyWebhook()` and `signWebhookBody()` for `x-wasender-signature`
-  (HMAC-SHA256 over the raw body), using Web Crypto and a constant time
-  comparison, plus the `WEBHOOK_SIGNATURE_HEADER` constant.
+- `verifyWebhook()`, `verifyWebhookSync()` and `signWebhookBody()` for
+  `x-wasender-signature` (HMAC-SHA256 over the raw body), with a constant time
+  comparison and the `WEBHOOK_SIGNATURE_HEADER` constant. Uses the runtime's
+  Web Crypto where there is one and a bundled HMAC-SHA256 otherwise, since
+  Node only exposes `crypto.subtle` globally from version 19.
 - Credential guards: passing a `wsm_` key to the messaging client, or a `wsk_`
   token to the provisioning client, throws before any request is made.
 - A `request()` escape hatch on both clients for endpoints the SDK does not wrap

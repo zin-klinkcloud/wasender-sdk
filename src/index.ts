@@ -53,6 +53,7 @@ export {
 
 export {
   verifyWebhook,
+  verifyWebhookSync,
   signWebhookBody,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_SIGNATURE_PREFIX,

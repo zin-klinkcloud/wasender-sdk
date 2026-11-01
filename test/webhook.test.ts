@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { WEBHOOK_SIGNATURE_HEADER, signWebhookBody, verifyWebhook } from '../src/webhook.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { WEBHOOK_SIGNATURE_HEADER, signWebhookBody, verifyWebhook, verifyWebhookSync } from '../src/webhook.js';
 
 const SECRET = 'whsec_test_secret';
 const BODY = JSON.stringify({
@@ -86,5 +86,46 @@ describe('verifyWebhook', () => {
     const signature = await signWebhookBody('', SECRET);
     await expect(verifyWebhook('', signature, SECRET)).resolves.toBe(true);
     await expect(verifyWebhook('x', signature, SECRET)).resolves.toBe(false);
+  });
+});
+
+describe('verifyWebhookSync', () => {
+  it('agrees with the async verifier on a valid signature', async () => {
+    const signature = await signWebhookBody(BODY, SECRET);
+    expect(verifyWebhookSync(BODY, signature, SECRET)).toBe(true);
+    expect(verifyWebhookSync(new TextEncoder().encode(BODY), signature, SECRET)).toBe(true);
+  });
+
+  it('rejects a tampered body, the wrong secret and a bad header, without throwing', async () => {
+    const signature = await signWebhookBody(BODY, SECRET);
+    expect(verifyWebhookSync(BODY.replace('msg_1', 'msg_2'), signature, SECRET)).toBe(false);
+    expect(verifyWebhookSync(BODY, signature, 'whsec_other')).toBe(false);
+    expect(verifyWebhookSync(BODY, 'nonsense', SECRET)).toBe(false);
+    expect(verifyWebhookSync(BODY, undefined, SECRET)).toBe(false);
+    expect(verifyWebhookSync(null, signature, SECRET)).toBe(false);
+  });
+});
+
+describe('runtimes without global Web Crypto, such as Node 18', () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+
+  afterEach(() => {
+    if (original) Object.defineProperty(globalThis, 'crypto', original);
+  });
+
+  function hideWebCrypto(): void {
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true, writable: true });
+  }
+
+  it('still signs and verifies, using the SDK implementation', async () => {
+    // Sign while Web Crypto is available, verify while it is not: the two
+    // implementations have to agree byte for byte.
+    const signature = await signWebhookBody(BODY, SECRET);
+    hideWebCrypto();
+    expect(globalThis.crypto).toBeUndefined();
+    await expect(verifyWebhook(BODY, signature, SECRET)).resolves.toBe(true);
+    await expect(verifyWebhook(BODY, signature, 'whsec_other')).resolves.toBe(false);
+    await expect(signWebhookBody(BODY, SECRET)).resolves.toBe(signature);
+    expect(verifyWebhookSync(BODY, signature, SECRET)).toBe(true);
   });
 });

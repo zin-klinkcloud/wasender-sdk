@@ -15,7 +15,7 @@ Docs: [docs.wasender.dev](https://docs.wasender.dev)
 npm install @wasender/sdk
 ```
 
-Requires Node 18 or newer. Also runs on Bun, Deno, Cloudflare Workers and in the browser (anywhere `fetch` and Web Crypto are available).
+Requires Node 18 or newer. Also runs on Bun, Deno, Cloudflare Workers and in the browser: anywhere global `fetch` is available.
 
 ## Quickstart
 
@@ -154,7 +154,9 @@ app.post('/webhooks/wasender', express.raw({ type: 'application/json' }), async 
 });
 ```
 
-`verifyWebhook(rawBody, signatureHeader, secret)` takes a `string`, `Uint8Array` or `ArrayBuffer` body, compares in constant time, and returns `false` rather than throwing for a missing header, a malformed header, the wrong secret or a tampered body. It uses Web Crypto, so the same code works in the browser and on the edge; there is no synchronous variant because that would mean importing a Node builtin and breaking non-Node bundles. `signWebhookBody()` is exported for testing your own handler.
+`verifyWebhook(rawBody, signatureHeader, secret)` takes a `string`, `Uint8Array` or `ArrayBuffer` body, compares in constant time, and returns `false` rather than throwing for a missing header, a malformed header, the wrong secret or a tampered body. `verifyWebhookSync()` is the same check for handlers that cannot await, and `signWebhookBody()` is exported for testing your own handler.
+
+It uses the runtime's Web Crypto where there is one, and the SDK's own HMAC-SHA256 otherwise (Node only exposes `crypto.subtle` globally from version 19, and this package supports Node 18). No Node builtin is imported either way, so the same code works in the browser and on the edge. The synchronous variant always uses the SDK implementation, since Web Crypto has no synchronous API.
 
 Non-2xx or slow webhook responses are retried with backoff, so return 200 quickly and process afterwards.
 
@@ -242,7 +244,7 @@ await manage.deleteChannel(id);      // irreversible
 
 | Runtime | Notes |
 |---|---|
-| Node 18, 20, 22+ | tested in CI |
+| Node 18, 20, 22+ | tested in CI. On Node 18 the webhook verifier uses the SDK's own HMAC-SHA256, since global Web Crypto only arrived in Node 19 |
 | Bun, Deno | global `fetch` and Web Crypto |
 | Cloudflare Workers and other edge runtimes | no Node builtins are imported |
 | Browsers | works, but a channel token in client-side code grants full control of the number, so keep it on a server |
