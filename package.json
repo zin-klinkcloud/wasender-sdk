@@ -1,0 +1,63 @@
+{
+  "name": "@wasender/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for the wasender.dev WhatsApp API: zero runtime dependencies, dual ESM and CJS.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zin-klinkcloud/wasender-sdk.git"
+  },
+  "homepage": "https://docs.wasender.dev",
+  "bugs": {
+    "url": "https://github.com/zin-klinkcloud/wasender-sdk/issues"
+  },
+  "keywords": [
+    "whatsapp",
+    "whatsapp-api",
+    "wasender",
+    "sdk",
+    "mcp"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "overrides": {
+    "vite": "^6.3.6"
+  }
+}
